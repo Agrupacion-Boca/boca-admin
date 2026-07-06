@@ -11,6 +11,7 @@ const nav = [
   { href: "/admin/padron", label: "Padrón" },
   { href: "/admin/noticias", label: "Noticias" },
   { href: "/admin/encuestas", label: "Encuestas" },
+  { href: "/admin/usuarios", label: "Usuarios" },
 ];
 
 export default function AdminLayout({
