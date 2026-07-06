@@ -8,6 +8,7 @@ import AuthGuard from "@/components/AuthGuard";
 const nav = [
   { href: "/admin/dashboard", label: "Dashboard" },
   { href: "/admin/registros", label: "Registros" },
+  { href: "/admin/padron", label: "Padrón" },
   { href: "/admin/noticias", label: "Noticias" },
   { href: "/admin/encuestas", label: "Encuestas" },
 ];
@@ -67,4 +68,3 @@ export default function AdminLayout({
     </AuthGuard>
   );
 }
-
