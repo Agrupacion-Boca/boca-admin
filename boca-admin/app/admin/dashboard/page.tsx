@@ -20,19 +20,24 @@ function agrupar(items: Registro[], campo: "categoria" | "pais") {
   return Object.entries(conteo).sort((a, b) => b[1] - a[1]);
 }
 
-function ultimosNDias(items: Registro[], n: number) {
-  const hoy = new Date();
+function generarSerieDiaria(items: Registro[], desde: Date, hasta: Date) {
   const dias: { fecha: string; label: string; total: number }[] = [];
+  const cursor = new Date(desde);
+  cursor.setHours(0, 0, 0, 0);
+  const fin = new Date(hasta);
+  fin.setHours(0, 0, 0, 0);
 
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(hoy);
-    d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
+  // Tope de 60 días para que el gráfico no se vuelva ilegible
+  let dias_restantes = 60;
+  while (cursor <= fin && dias_restantes > 0) {
+    const key = cursor.toISOString().slice(0, 10);
     dias.push({
       fecha: key,
-      label: d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }),
+      label: cursor.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }),
       total: 0,
     });
+    cursor.setDate(cursor.getDate() + 1);
+    dias_restantes--;
   }
 
   items.forEach((r) => {
@@ -74,6 +79,13 @@ export default function DashboardPage() {
   const [registros, setRegistros] = useState<Registro[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Filtros
+  const [filtroEstado, setFiltroEstado] = useState("todos");
+  const [filtroCategoria, setFiltroCategoria] = useState("todas");
+  const [filtroPais, setFiltroPais] = useState("todos");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+
   useEffect(() => {
     cargar();
   }, []);
@@ -91,18 +103,69 @@ export default function DashboardPage() {
     setLoading(false);
   }
 
-  const total = registros.length;
-  const validados = registros.filter((r) => r.estado === "validado").length;
-  const pendientes = registros.filter((r) => r.estado === "pendiente").length;
-  const noSocios = registros.filter((r) => r.estado === "no_socio").length;
+  // Opciones dinámicas de los selectores, según lo que realmente hay cargado
+  const categoriasDisponibles = useMemo(
+    () =>
+      Array.from(
+        new Set(registros.map((r) => r.categoria?.trim()).filter(Boolean))
+      ).sort() as string[],
+    [registros]
+  );
+  const paisesDisponibles = useMemo(
+    () =>
+      Array.from(
+        new Set(registros.map((r) => r.pais?.trim()).filter(Boolean))
+      ).sort() as string[],
+    [registros]
+  );
+
+  const filtrados = useMemo(() => {
+    return registros.filter((r) => {
+      if (filtroEstado !== "todos" && r.estado !== filtroEstado) return false;
+      if (filtroCategoria !== "todas" && r.categoria !== filtroCategoria)
+        return false;
+      if (filtroPais !== "todos" && r.pais !== filtroPais) return false;
+      if (desde && r.created_at.slice(0, 10) < desde) return false;
+      if (hasta && r.created_at.slice(0, 10) > hasta) return false;
+      return true;
+    });
+  }, [registros, filtroEstado, filtroCategoria, filtroPais, desde, hasta]);
+
+  const total = filtrados.length;
+  const validados = filtrados.filter((r) => r.estado === "validado").length;
+  const pendientes = filtrados.filter((r) => r.estado === "pendiente").length;
+  const noSocios = filtrados.filter((r) => r.estado === "no_socio").length;
   const pctValidados = total === 0 ? 0 : Math.round((validados / total) * 100);
 
-  const porCategoria = useMemo(() => agrupar(registros, "categoria"), [registros]);
-  const porPais = useMemo(() => agrupar(registros, "pais"), [registros]);
-  const evolucion = useMemo(() => ultimosNDias(registros, 14), [registros]);
+  const porCategoria = useMemo(() => agrupar(filtrados, "categoria"), [filtrados]);
+  const porPais = useMemo(() => agrupar(filtrados, "pais"), [filtrados]);
+
+  const evolucion = useMemo(() => {
+    const fin = hasta ? new Date(hasta) : new Date();
+    const inicio = desde
+      ? new Date(desde)
+      : new Date(fin.getTime() - 13 * 24 * 60 * 60 * 1000); // últimos 14 días por default
+    return generarSerieDiaria(filtrados, inicio, fin);
+  }, [filtrados, desde, hasta]);
+
   const maxEvolucion = Math.max(1, ...evolucion.map((d) => d.total));
   const maxCategoria = Math.max(1, ...porCategoria.map(([, v]) => v));
   const maxPais = Math.max(1, ...porPais.map(([, v]) => v));
+
+  function limpiarFiltros() {
+    setFiltroEstado("todos");
+    setFiltroCategoria("todas");
+    setFiltroPais("todos");
+    setDesde("");
+    setHasta("");
+  }
+
+  const hayFiltrosActivos =
+    filtroEstado !== "todos" ||
+    filtroCategoria !== "todas" ||
+    filtroPais !== "todos" ||
+    desde !== "" ||
+    hasta !== "";
 
   if (loading) {
     return <p className="text-gray-400">Cargando estadísticas...</p>;
@@ -110,7 +173,96 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-black text-bombonera mb-6">Dashboard</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-black text-bombonera">Dashboard</h1>
+        {hayFiltrosActivos && (
+          <button
+            onClick={limpiarFiltros}
+            className="text-xs font-bold text-bombonera underline"
+          >
+            Limpiar filtros
+          </button>
+        )}
+      </div>
+
+      {/* Filtros */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6 flex flex-wrap gap-3 items-end">
+        <div>
+          <label className="block text-xs font-bold text-gray-500 mb-1">
+            Estado
+          </label>
+          <select
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="todos">Todos</option>
+            <option value="validado">Validado</option>
+            <option value="pendiente">Pendiente</option>
+            <option value="no_socio">No socio</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-gray-500 mb-1">
+            Categoría
+          </label>
+          <select
+            value={filtroCategoria}
+            onChange={(e) => setFiltroCategoria(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="todas">Todas</option>
+            {categoriasDisponibles.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-gray-500 mb-1">
+            País
+          </label>
+          <select
+            value={filtroPais}
+            onChange={(e) => setFiltroPais(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="todos">Todos</option>
+            {paisesDisponibles.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-gray-500 mb-1">
+            Desde
+          </label>
+          <input
+            type="date"
+            value={desde}
+            onChange={(e) => setDesde(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-gray-500 mb-1">
+            Hasta
+          </label>
+          <input
+            type="date"
+            value={hasta}
+            onChange={(e) => setHasta(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+      </div>
 
       {/* Tarjetas resumen */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -137,13 +289,13 @@ export default function DashboardPage() {
         {/* Evolución diaria */}
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h2 className="text-sm font-bold text-bombonera mb-4">
-            Altas por día (últimos 14 días)
+            Altas por día {desde || hasta ? "(rango seleccionado)" : "(últimos 14 días)"}
           </h2>
-          <div className="flex items-end gap-1.5 h-40">
+          <div className="flex items-end gap-1.5 h-40 overflow-x-auto">
             {evolucion.map((d) => (
               <div
                 key={d.fecha}
-                className="flex-1 flex flex-col items-center justify-end gap-1"
+                className="flex-1 min-w-[8px] flex flex-col items-center justify-end gap-1"
               >
                 <div
                   className="w-full bg-oro rounded-t"
@@ -152,9 +304,7 @@ export default function DashboardPage() {
                   }}
                   title={`${d.label}: ${d.total}`}
                 />
-                <span className="text-[10px] text-gray-400 rotate-0">
-                  {d.label}
-                </span>
+                <span className="text-[10px] text-gray-400">{d.label}</span>
               </div>
             ))}
           </div>
@@ -164,7 +314,7 @@ export default function DashboardPage() {
         <div className="bg-white border border-gray-200 rounded-xl p-5">
           <h2 className="text-sm font-bold text-bombonera mb-4">Por categoría</h2>
           {porCategoria.length === 0 && (
-            <p className="text-sm text-gray-400">Sin datos todavía.</p>
+            <p className="text-sm text-gray-400">Sin datos para este filtro.</p>
           )}
           {porCategoria.map(([nombre, valor]) => (
             <BarraHorizontal
@@ -180,7 +330,7 @@ export default function DashboardPage() {
         <div className="bg-white border border-gray-200 rounded-xl p-5 md:col-span-2">
           <h2 className="text-sm font-bold text-bombonera mb-4">Por país</h2>
           {porPais.length === 0 && (
-            <p className="text-sm text-gray-400">Sin datos todavía.</p>
+            <p className="text-sm text-gray-400">Sin datos para este filtro.</p>
           )}
           <div className="grid md:grid-cols-2 gap-x-8">
             {porPais.map(([nombre, valor]) => (
