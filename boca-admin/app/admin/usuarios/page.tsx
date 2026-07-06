@@ -17,11 +17,23 @@ export default function UsuariosPage() {
 
   const [email, setEmail] = useState("");
   const [nombre, setNombre] = useState("");
+  const [usarPassword, setUsarPassword] = useState(true);
+  const [password, setPassword] = useState("");
   const [invitando, setInvitando] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const [error, setError] = useState("");
 
   const [quitandoId, setQuitandoId] = useState<string | null>(null);
+
+  function generarPassword() {
+    const chars =
+      "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$";
+    let pass = "";
+    for (let i = 0; i < 14; i++) {
+      pass += chars[Math.floor(Math.random() * chars.length)];
+    }
+    setPassword(pass);
+  }
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -54,11 +66,22 @@ export default function UsuariosPage() {
       setError("Ingresá un email.");
       return;
     }
+    if (usarPassword && password.trim().length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
 
     setInvitando(true);
     const { data, error: fnError } = await supabase.functions.invoke(
       "manage-admins",
-      { body: { accion: "invitar", email: email.trim(), nombre: nombre.trim() || null } }
+      {
+        body: {
+          accion: "invitar",
+          email: email.trim(),
+          nombre: nombre.trim() || null,
+          password: usarPassword ? password : null,
+        },
+      }
     );
     setInvitando(false);
 
@@ -67,9 +90,10 @@ export default function UsuariosPage() {
       return;
     }
 
-    setMensaje(`Invitación enviada a ${email}.`);
+    setMensaje(data.message ?? `Listo, ${email} ya tiene acceso.`);
     setEmail("");
     setNombre("");
+    setPassword("");
     cargar();
   }
 
@@ -104,38 +128,79 @@ export default function UsuariosPage() {
 
       <form
         onSubmit={invitar}
-        className="bg-white border border-gray-200 rounded-xl p-4 mb-6 flex flex-wrap gap-3 items-end"
+        className="bg-white border border-gray-200 rounded-xl p-4 mb-6"
       >
-        <div className="flex-1 min-w-[220px]">
-          <label className="block text-xs font-bold text-gray-500 mb-1">
-            Email
-          </label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="persona@ejemplo.com"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-bombonera"
-          />
+        <div className="flex flex-wrap gap-3 items-end mb-3">
+          <div className="flex-1 min-w-[220px]">
+            <label className="block text-xs font-bold text-gray-500 mb-1">
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="persona@ejemplo.com"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-bombonera"
+            />
+          </div>
+          <div className="flex-1 min-w-[180px]">
+            <label className="block text-xs font-bold text-gray-500 mb-1">
+              Nombre (opcional)
+            </label>
+            <input
+              type="text"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              placeholder="Para identificarlo en la lista"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-bombonera"
+            />
+          </div>
         </div>
-        <div className="flex-1 min-w-[180px]">
-          <label className="block text-xs font-bold text-gray-500 mb-1">
-            Nombre (opcional)
-          </label>
+
+        <label className="flex items-center gap-2 text-xs text-gray-600 mb-3">
           <input
-            type="text"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            placeholder="Para identificarlo en la lista"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-bombonera"
+            type="checkbox"
+            checked={usarPassword}
+            onChange={(e) => setUsarPassword(e.target.checked)}
           />
-        </div>
+          Crear con contraseña directa (no requiere email configurado — se la
+          compartís vos por otro medio)
+        </label>
+
+        {usarPassword && (
+          <div className="flex gap-3 items-end mb-3">
+            <div className="flex-1 min-w-[220px]">
+              <label className="block text-xs font-bold text-gray-500 mb-1">
+                Contraseña temporal
+              </label>
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 8 caracteres"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-bombonera"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={generarPassword}
+              className="text-xs font-bold text-bombonera border border-bombonera px-3 py-2 rounded-lg hover:bg-bombonera hover:text-white"
+            >
+              Generar
+            </button>
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={invitando}
           className="bg-bombonera text-white text-sm font-bold px-5 py-2 rounded-lg hover:bg-bombonera-deep disabled:opacity-60"
         >
-          {invitando ? "Invitando..." : "Invitar"}
+          {invitando
+            ? "Procesando..."
+            : usarPassword
+            ? "Crear acceso"
+            : "Invitar por email"}
         </button>
       </form>
 
@@ -224,4 +289,5 @@ export default function UsuariosPage() {
     </div>
   );
 }
+
 
